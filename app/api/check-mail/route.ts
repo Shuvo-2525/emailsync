@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { ImapFlow } from "imapflow";
 import { decryptPassword } from "@/lib/encryption";
 
-// Force Node.js runtime because IMAP requires TCP sockets (not available in Edge)
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
@@ -17,26 +16,21 @@ export async function POST(request: Request) {
       );
     }
 
-    // 1. Decrypt the password "Just In Time"
-    // This password exists in memory for milliseconds only
     const realPassword = decryptPassword(account.encryptedPassword);
 
-    // 2. Initialize the IMAP Client
     const client = new ImapFlow({
       host: account.host,
       port: account.port,
-      secure: account.port === 993, // True for 993, False for 143
+      secure: account.port === 993,
       auth: {
         user: account.email,
         pass: realPassword,
       },
-      logger: false, // Turn off noisy logs
+      logger: false,
     });
 
-    // 3. Connect and Fetch
-    const emails = [];
+    const emails: any[] = [];
     
-    // Time out after 10 seconds to prevent hanging
     const connectionTimeout = new Promise((_, reject) =>
       setTimeout(() => reject(new Error("Connection timed out")), 10000)
     );
@@ -44,12 +38,12 @@ export async function POST(request: Request) {
     try {
       await Promise.race([client.connect(), connectionTimeout]);
 
-      // Open Inbox in Read-Only mode (safer/faster)
-      const lock = await client.getMailboxLock("INBOX");
+      // We must specifically open the inbox
+      await client.getMailboxLock("INBOX");
 
       try {
-        // Fetch the latest 20 messages (You can filter for {seen: false} here if you want only unread)
-        // We fetch 'envelope' (headers) which is fast. Body is fetched only when clicked.
+        // Fetch all messages. 
+        // Note: '1:*' gets everything.
         for await (const message of client.fetch("1:*", {
           envelope: true,
           uid: true,
@@ -58,25 +52,28 @@ export async function POST(request: Request) {
           emails.push({
             uid: message.uid,
             subject: message.envelope.subject,
-            from: message.envelope.from[0].address, // Simplification: just get the first sender
+            from: message.envelope.from[0]?.address || "Unknown",
             date: message.envelope.date,
-            flags: message.flags,
-            account_id: account.id, // Tag it so we know which account it belongs to
+            flags: Array.from(message.flags), // Convert Set to Array for serialization
+            account_id: account.id,
           });
         }
       } finally {
-        lock.release();
+        // Make sure to release the lock, but we are logging out anyway
       }
     } catch (err: any) {
       console.error(`IMAP Error for ${account.email}:`, err.message);
-      // Return empty array instead of crashing, so other accounts still load
       return NextResponse.json({ emails: [], error: err.message });
     } finally {
       await client.logout();
     }
 
-    // Sort by date (newest first) before returning
-    emails.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    // FIX: Handle undefined dates safely for TypeScript
+    emails.sort((a, b) => {
+      const dateA = a.date ? new Date(a.date).getTime() : 0;
+      const dateB = b.date ? new Date(b.date).getTime() : 0;
+      return dateB - dateA;
+    });
 
     return NextResponse.json({ emails });
 

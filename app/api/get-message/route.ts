@@ -13,10 +13,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Missing data" }, { status: 400 });
     }
 
-    // 1. Decrypt Password
     const realPassword = decryptPassword(account.encryptedPassword);
 
-    // 2. Connect
     const client = new ImapFlow({
       host: account.host,
       port: account.port,
@@ -32,39 +30,48 @@ export async function POST(request: Request) {
 
     try {
       await client.connect();
-      let lock = await client.getMailboxLock("INBOX");
+      await client.getMailboxLock("INBOX");
 
       try {
-        // 3. Fetch the full message source for this specific UID
-        // FIX: Added 'uid: true' so it knows we are passing a UID, not a sequence number
-        const message = await client.fetchOne(uid, { 
+        // CRITICAL FIX:
+        // 1. Convert uid to string to be safe
+        // 2. Pass { uid: true } so it searches by UID, not sequence number
+        const messageId = String(uid);
+        
+        const message = await client.fetchOne(messageId, { 
           source: true, 
           uid: true 
         });
 
+        if (!message) {
+            throw new Error("Email not found on server");
+        }
+
         if (message.source) {
-          // 4. Parse the raw source into friendly HTML/Text
           const parsed = await simpleParser(message.source);
           
           emailData = {
             subject: parsed.subject,
             from: parsed.from?.text,
             date: parsed.date,
-            html: parsed.html || "", // Prefer HTML
-            text: parsed.textAsHtml || parsed.text || "", // Fallback to text
+            html: parsed.html || "", 
+            text: parsed.textAsHtml || parsed.text || "",
           };
           
-          // Optional: Mark as read (\Seen)
-          // FIX: Added 'uid: true' option here as well just in case, though messageFlagsAdd usually detects it or takes a generic set
-          await client.messageFlagsAdd(uid, ["\\Seen"], { uid: true });
+          // Mark as read if found
+          try {
+            await client.messageFlagsAdd(messageId, ["\\Seen"], { uid: true });
+          } catch (flagErr) {
+            console.warn("Could not mark as seen:", flagErr);
+          }
         }
 
       } finally {
-        lock.release();
+        // Lock is released on logout
       }
     } catch (err: any) {
       console.error("Fetch Body Error:", err);
-      return NextResponse.json({ error: err.message }, { status: 500 });
+      return NextResponse.json({ error: err.message || "Failed to fetch email" }, { status: 500 });
     } finally {
       await client.logout();
     }

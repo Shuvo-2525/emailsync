@@ -42,7 +42,7 @@ export function AddAccountModal() {
     port: "993",
   });
 
-  // Handle Provider Change (Auto-fill defaults based on PDF spec)
+  // Handle Provider Change (Auto-fill defaults)
   const handleProviderChange = (value: string) => {
     setProvider(value);
     let newHost = "";
@@ -50,6 +50,8 @@ export function AddAccountModal() {
 
     if (value === "titan") {
       newHost = "imap.titan.email";
+    } else if (value === "hostinger") {
+      newHost = "imap.hostinger.com";
     } else if (value === "one") {
       newHost = "imap.one.com";
     } else {
@@ -66,20 +68,18 @@ export function AddAccountModal() {
     setLoading(true);
     try {
       // 1. Encrypt Password (Server Action)
-      // We send the password to the server, it returns the encrypted hex
       const payload = new FormData();
       payload.append("password", formData.password);
       const encryptedPassword = await encryptAccountData(payload);
 
       // 2. Save to Firestore
-      // Path: users/{uid}/mail_accounts/{autoId}
       await addDoc(collection(db, "users", user.uid, "mail_accounts"), {
         label: formData.label,
         email: formData.email,
         provider: provider,
         host: formData.host,
         port: parseInt(formData.port),
-        encryptedPassword: encryptedPassword, // { iv, content, tag }
+        encryptedPassword: encryptedPassword,
         createdAt: serverTimestamp(),
         lastCheck: null,
         unreadCount: 0,
@@ -142,7 +142,8 @@ export function AddAccountModal() {
                 <SelectValue placeholder="Select provider" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="titan">Titan (Hostinger)</SelectItem>
+                <SelectItem value="titan">Titan Email</SelectItem>
+                <SelectItem value="hostinger">Hostinger</SelectItem>
                 <SelectItem value="one">One.com</SelectItem>
                 <SelectItem value="custom">Custom IMAP</SelectItem>
               </SelectContent>
@@ -156,7 +157,7 @@ export function AddAccountModal() {
               <Input
                 id="email"
                 type="email"
-                placeholder="user@example.com"
+                placeholder="user@yourdomain.com"
                 value={formData.email}
                 onChange={(e) =>
                   setFormData({ ...formData, email: e.target.value })
@@ -188,7 +189,7 @@ export function AddAccountModal() {
                 onChange={(e) =>
                   setFormData({ ...formData, host: e.target.value })
                 }
-                disabled={provider !== "custom"} // Lock unless custom
+                disabled={provider !== "custom"}
                 required
               />
             </div>

@@ -9,7 +9,7 @@ import { AddAccountModal } from "@/components/add-account-modal";
 import { EmailView } from "@/components/email-view";
 
 import { Button } from "@/components/ui/button";
-import { RefreshCw, LogOut, Mail, Inbox } from "lucide-react";
+import { RefreshCw, LogOut, Mail, Inbox, MailOpen } from "lucide-react";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 
@@ -29,7 +29,7 @@ interface EmailMessage {
   subject: string;
   from: string;
   date: string;
-  flags: Set<string>;
+  flags: string[]; // Changed from Set<string> to string[] for JSON compatibility
   account_id: string;
 }
 
@@ -110,10 +110,50 @@ export default function DashboardPage() {
     toast.success("Inbox updated");
   }, [accounts]);
 
-  // 3. Handle Email Click
+  // 3. Mark as Read Function
+  const handleMarkAsRead = async (e: React.MouseEvent, email: EmailMessage) => {
+    e.stopPropagation(); // Prevent opening the email view
+
+    // Optimistic UI Update
+    setEmails((prev) => 
+      prev.map((msg) => 
+        msg.uid === email.uid && msg.account_id === email.account_id 
+          ? { ...msg, flags: [...msg.flags, '\\Seen'] } 
+          : msg
+      )
+    );
+
+    try {
+      const account = accounts.find(a => a.id === email.account_id);
+      if (!account) return;
+
+      await fetch("/api/mark-read", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ account, uid: email.uid }),
+      });
+      toast.success("Marked as read");
+    } catch (error) {
+      console.error("Failed to mark as read", error);
+      toast.error("Failed to update status on server");
+    }
+  };
+
+  // 4. Handle Email Click (Opens View and marks as read locally)
   const handleEmailClick = (email: EmailMessage) => {
     setViewEmail(email);
     setIsViewOpen(true);
+    
+    // Mark as read in local state immediately when opening
+    if (!email.flags.includes('\\Seen')) {
+        setEmails((prev) => 
+            prev.map((msg) => 
+              msg.uid === email.uid && msg.account_id === email.account_id 
+                ? { ...msg, flags: [...msg.flags, '\\Seen'] } 
+                : msg
+            )
+        );
+    }
   };
 
   const viewedAccount = viewEmail 
@@ -125,7 +165,6 @@ export default function DashboardPage() {
     : emails;
 
   return (
-    // Updated to use h-[100dvh] for mobile consistency and overflow-hidden to trap scrollbars
     <div className="flex h-[100dvh] w-full flex-col md:flex-row overflow-hidden bg-background">
       
       {/* SIDEBAR (Accounts) */}
@@ -135,7 +174,6 @@ export default function DashboardPage() {
           <AddAccountModal />
         </div>
 
-        {/* flex-1 min-h-0 ensures this div takes remaining space but allows internal scrolling */}
         <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-2">
           <button
             onClick={() => setSelectedAccountId(null)}
@@ -205,7 +243,6 @@ export default function DashboardPage() {
           </Button>
         </header>
 
-        {/* flex-1 min-h-0 for proper scrolling behavior */}
         <div className="flex-1 min-h-0 overflow-y-auto p-0">
           {accounts.length === 0 ? (
              <div className="flex flex-col items-center justify-center h-full text-muted-foreground space-y-4">
@@ -218,27 +255,50 @@ export default function DashboardPage() {
             </div>
           ) : (
             <div className="divide-y divide-zinc-100">
-              {filteredEmails.map((email) => (
-                <div 
-                  key={email.uid + email.account_id} 
-                  onClick={() => handleEmailClick(email)}
-                  className="flex items-start p-4 hover:bg-zinc-50 cursor-pointer group transition-colors"
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between mb-1">
-                      <p className="text-sm font-medium text-zinc-900 truncate pr-2">
-                        {email.from.split('<')[0].replace(/"/g, '')}
-                      </p>
-                      <span className="text-xs text-zinc-400 whitespace-nowrap">
-                        {formatDistanceToNow(new Date(email.date), { addSuffix: true })}
-                      </span>
+              {filteredEmails.map((email) => {
+                const isRead = email.flags && email.flags.includes('\\Seen');
+                
+                return (
+                  <div 
+                    key={email.uid + email.account_id} 
+                    onClick={() => handleEmailClick(email)}
+                    className={`flex items-start p-4 hover:bg-zinc-50 cursor-pointer group transition-colors relative ${!isRead ? 'bg-blue-50/30' : ''}`}
+                  >
+                    {/* Unread Indicator Dot */}
+                    {!isRead && (
+                      <div className="absolute left-2 top-1/2 -translate-y-1/2 w-2 h-2 bg-blue-500 rounded-full" />
+                    )}
+
+                    <div className="flex-1 min-w-0 pl-4">
+                      <div className="flex items-center justify-between mb-1">
+                        <p className={`text-sm font-medium truncate pr-2 ${!isRead ? 'text-zinc-900 font-bold' : 'text-zinc-700'}`}>
+                          {email.from.split('<')[0].replace(/"/g, '')}
+                        </p>
+                        <div className="flex items-center gap-2">
+                           <span className="text-xs text-zinc-400 whitespace-nowrap">
+                            {formatDistanceToNow(new Date(email.date), { addSuffix: true })}
+                           </span>
+                           {/* Mark as Read Button */}
+                           {!isRead && (
+                             <Button 
+                               variant="ghost" 
+                               size="icon" 
+                               className="h-6 w-6 text-zinc-400 hover:text-blue-600 hover:bg-blue-100"
+                               title="Mark as read"
+                               onClick={(e) => handleMarkAsRead(e, email)}
+                             >
+                               <MailOpen className="h-3 w-3" />
+                             </Button>
+                           )}
+                        </div>
+                      </div>
+                      <h4 className={`text-sm truncate group-hover:text-zinc-900 ${!isRead ? 'text-zinc-800 font-semibold' : 'text-zinc-500'}`}>
+                        {email.subject || "(No Subject)"}
+                      </h4>
                     </div>
-                    <h4 className="text-sm text-zinc-700 truncate group-hover:text-zinc-900">
-                      {email.subject || "(No Subject)"}
-                    </h4>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

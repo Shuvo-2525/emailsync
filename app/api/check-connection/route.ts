@@ -37,7 +37,7 @@ export async function POST(request: Request) {
             clearTimeout(timeout);
             client.logout();
             resolve();
-        }).catch((err) => {
+        }).catch((err: any) => {
             clearTimeout(timeout);
             reject(err);
         });

@@ -6,10 +6,10 @@ import { useAuth } from "@/components/auth-provider";
 import { db } from "@/lib/firebase";
 import { collection, query, onSnapshot, orderBy } from "firebase/firestore";
 import { AddAccountModal } from "@/components/add-account-modal";
-import { EmailView } from "@/components/email-view"; // Import the new component
+import { EmailView } from "@/components/email-view";
 
 import { Button } from "@/components/ui/button";
-import { Loader2, RefreshCw, LogOut, Mail, Inbox } from "lucide-react";
+import { RefreshCw, LogOut, Mail, Inbox } from "lucide-react";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 
@@ -116,8 +116,6 @@ export default function DashboardPage() {
     setIsViewOpen(true);
   };
 
-  // 4. Get Account for the currently viewed email
-  // We need to pass the full account object to the viewer so it can decrypt the password
   const viewedAccount = viewEmail 
     ? accounts.find(a => a.id === viewEmail.account_id) 
     : null;
@@ -135,7 +133,8 @@ export default function DashboardPage() {
           <AddAccountModal />
         </div>
 
-        <div className="flex-1 overflow-y-auto space-y-2 pr-2">
+        {/* Added min-h-0 here to ensure scrolling works within flex container */}
+        <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-2">
           <button
             onClick={() => setSelectedAccountId(null)}
             className={`w-full flex items-center space-x-3 px-3 py-2 rounded-md text-sm transition-colors ${
@@ -204,7 +203,8 @@ export default function DashboardPage() {
           </Button>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-0">
+        {/* Added min-h-0 here as well for the email list */}
+        <div className="flex-1 min-h-0 overflow-y-auto p-0">
           {accounts.length === 0 ? (
              <div className="flex flex-col items-center justify-center h-full text-muted-foreground space-y-4">
                <div className="p-6 bg-zinc-100 rounded-full"><Mail className="h-10 w-10 text-zinc-300" /></div>
@@ -219,7 +219,7 @@ export default function DashboardPage() {
               {filteredEmails.map((email) => (
                 <div 
                   key={email.uid + email.account_id} 
-                  onClick={() => handleEmailClick(email)} // Add Click Handler
+                  onClick={() => handleEmailClick(email)}
                   className="flex items-start p-4 hover:bg-zinc-50 cursor-pointer group transition-colors"
                 >
                   <div className="flex-1 min-w-0">
@@ -242,7 +242,6 @@ export default function DashboardPage() {
         </div>
       </main>
 
-      {/* THE EMAIL VIEWER SLIDE-OVER */}
       <EmailView 
         email={viewEmail} 
         account={viewedAccount} 

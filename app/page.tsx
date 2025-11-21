@@ -125,15 +125,17 @@ export default function DashboardPage() {
     : emails;
 
   return (
-    <div className="flex h-screen w-full flex-col md:flex-row overflow-hidden">
-      {/* SIDEBAR */}
-      <aside className="w-full md:w-64 bg-zinc-50 border-r p-4 flex flex-col h-full">
-        <div className="flex items-center justify-between mb-6">
+    // Updated to use h-[100dvh] for mobile consistency and overflow-hidden to trap scrollbars
+    <div className="flex h-[100dvh] w-full flex-col md:flex-row overflow-hidden bg-background">
+      
+      {/* SIDEBAR (Accounts) */}
+      <aside className="w-full md:w-64 bg-zinc-50 border-r p-4 flex flex-col h-full shrink-0">
+        <div className="flex items-center justify-between mb-6 shrink-0">
           <h2 className="font-bold text-lg tracking-tight">Accounts</h2>
           <AddAccountModal />
         </div>
 
-        {/* Added min-h-0 here to ensure scrolling works within flex container */}
+        {/* flex-1 min-h-0 ensures this div takes remaining space but allows internal scrolling */}
         <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-2">
           <button
             onClick={() => setSelectedAccountId(null)}
@@ -168,7 +170,7 @@ export default function DashboardPage() {
           ))}
         </div>
 
-        <div className="pt-4 border-t mt-auto">
+        <div className="pt-4 border-t mt-auto shrink-0">
            <div className="text-xs text-muted-foreground truncate font-mono bg-zinc-200/50 p-1 rounded mb-2">
             {user?.email}
           </div>
@@ -184,7 +186,7 @@ export default function DashboardPage() {
         </div>
       </aside>
 
-      {/* MAIN CONTENT */}
+      {/* MAIN CONTENT (Email List) */}
       <main className="flex-1 flex flex-col min-w-0 bg-white h-full">
         <header className="h-16 border-b flex items-center justify-between px-6 shrink-0">
           <h1 className="text-xl font-bold">
@@ -203,7 +205,7 @@ export default function DashboardPage() {
           </Button>
         </header>
 
-        {/* Added min-h-0 here as well for the email list */}
+        {/* flex-1 min-h-0 for proper scrolling behavior */}
         <div className="flex-1 min-h-0 overflow-y-auto p-0">
           {accounts.length === 0 ? (
              <div className="flex flex-col items-center justify-center h-full text-muted-foreground space-y-4">

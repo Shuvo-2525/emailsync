@@ -1,0 +1,217 @@
+"use client";
+
+import { useState } from "react";
+import { useAuth } from "@/components/auth-provider";
+import { db } from "@/lib/firebase";
+import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { encryptAccountData } from "@/app/actions";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Loader2, Plus } from "lucide-react";
+
+export function AddAccountModal() {
+  const { user } = useAuth();
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  // Form State
+  const [provider, setProvider] = useState("titan");
+  const [formData, setFormData] = useState({
+    label: "",
+    email: "",
+    password: "",
+    host: "imap.titan.email",
+    port: "993",
+  });
+
+  // Handle Provider Change (Auto-fill defaults based on PDF spec)
+  const handleProviderChange = (value: string) => {
+    setProvider(value);
+    let newHost = "";
+    let newPort = "993";
+
+    if (value === "titan") {
+      newHost = "imap.titan.email";
+    } else if (value === "one") {
+      newHost = "imap.one.com";
+    } else {
+      newHost = ""; // Custom requires user input
+    }
+
+    setFormData((prev) => ({ ...prev, host: newHost, port: newPort }));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+
+    setLoading(true);
+    try {
+      // 1. Encrypt Password (Server Action)
+      // We send the password to the server, it returns the encrypted hex
+      const payload = new FormData();
+      payload.append("password", formData.password);
+      const encryptedPassword = await encryptAccountData(payload);
+
+      // 2. Save to Firestore
+      // Path: users/{uid}/mail_accounts/{autoId}
+      await addDoc(collection(db, "users", user.uid, "mail_accounts"), {
+        label: formData.label,
+        email: formData.email,
+        provider: provider,
+        host: formData.host,
+        port: parseInt(formData.port),
+        encryptedPassword: encryptedPassword, // { iv, content, tag }
+        createdAt: serverTimestamp(),
+        lastCheck: null,
+        unreadCount: 0,
+      });
+
+      toast.success("Account added successfully");
+      setOpen(false);
+      
+      // Reset form
+      setFormData({
+        label: "",
+        email: "",
+        password: "",
+        host: "imap.titan.email",
+        port: "993",
+      });
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to add account. Check console.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="icon" title="Add Account">
+          <Plus className="h-4 w-4" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle>Add Email Account</DialogTitle>
+          <DialogDescription>
+            Connect an IMAP account to view your emails here.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit} className="grid gap-4 py-4">
+          {/* Account Label */}
+          <div className="grid gap-2">
+            <Label htmlFor="label">Account Name</Label>
+            <Input
+              id="label"
+              placeholder="e.g. Work Email"
+              value={formData.label}
+              onChange={(e) =>
+                setFormData({ ...formData, label: e.target.value })
+              }
+              required
+            />
+          </div>
+
+          {/* Provider Select */}
+          <div className="grid gap-2">
+            <Label htmlFor="provider">Provider</Label>
+            <Select value={provider} onValueChange={handleProviderChange}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select provider" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="titan">Titan (Hostinger)</SelectItem>
+                <SelectItem value="one">One.com</SelectItem>
+                <SelectItem value="custom">Custom IMAP</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Email & Password */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="user@example.com"
+                value={formData.email}
+                onChange={(e) =>
+                  setFormData({ ...formData, email: e.target.value })
+                }
+                required
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                type="password"
+                value={formData.password}
+                onChange={(e) =>
+                  setFormData({ ...formData, password: e.target.value })
+                }
+                required
+              />
+            </div>
+          </div>
+
+          {/* Host & Port */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="host">IMAP Host</Label>
+              <Input
+                id="host"
+                value={formData.host}
+                onChange={(e) =>
+                  setFormData({ ...formData, host: e.target.value })
+                }
+                disabled={provider !== "custom"} // Lock unless custom
+                required
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="port">Port</Label>
+              <Input
+                id="port"
+                value={formData.port}
+                onChange={(e) =>
+                  setFormData({ ...formData, port: e.target.value })
+                }
+                disabled={provider !== "custom"}
+                required
+              />
+            </div>
+          </div>
+
+          <Button type="submit" disabled={loading} className="mt-2">
+            {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Save Account
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}

@@ -1,65 +1,254 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/components/auth-provider";
+import { db } from "@/lib/firebase";
+import { collection, query, onSnapshot, orderBy } from "firebase/firestore";
+import { AddAccountModal } from "@/components/add-account-modal";
+import { EmailView } from "@/components/email-view"; // Import the new component
+
+import { Button } from "@/components/ui/button";
+import { Loader2, RefreshCw, LogOut, Mail, Inbox } from "lucide-react";
+import { toast } from "sonner";
+import { formatDistanceToNow } from "date-fns";
+
+interface MailAccount {
+  id: string;
+  label: string;
+  email: string;
+  unreadCount: number;
+  provider: string;
+  host: string;
+  port: number;
+  encryptedPassword: any;
+}
+
+interface EmailMessage {
+  uid: string;
+  subject: string;
+  from: string;
+  date: string;
+  flags: Set<string>;
+  account_id: string;
+}
+
+export default function DashboardPage() {
+  const { user, loading, logout } = useAuth();
+  const router = useRouter();
+  
+  const [accounts, setAccounts] = useState<MailAccount[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+  
+  const [emails, setEmails] = useState<EmailMessage[]>([]);
+  const [isFetching, setIsFetching] = useState(false);
+
+  // Viewer State
+  const [viewEmail, setViewEmail] = useState<EmailMessage | null>(null);
+  const [isViewOpen, setIsViewOpen] = useState(false);
+
+  // Protect Route
+  useEffect(() => {
+    if (!loading && !user) {
+      router.push("/login");
+    }
+  }, [user, loading, router]);
+
+  // 1. Listen for Accounts
+  useEffect(() => {
+    if (!user) return;
+    const q = query(
+      collection(db, "users", user.uid, "mail_accounts"), 
+      orderBy("createdAt", "desc")
+    );
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const accountsData = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      })) as MailAccount[];
+      setAccounts(accountsData);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  // 2. The Polling Function
+  const fetchAllMail = useCallback(async () => {
+    if (accounts.length === 0) return;
+    
+    setIsFetching(true);
+    let allEmails: EmailMessage[] = [];
+
+    const promises = accounts.map(async (account) => {
+      try {
+        const response = await fetch("/api/check-mail", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ account }),
+        });
+        
+        const data = await response.json();
+        if (data.emails) {
+          return data.emails;
+        }
+        return [];
+      } catch (error) {
+        console.error(`Failed to fetch for ${account.email}`, error);
+        return [];
+      }
+    });
+
+    const results = await Promise.all(promises);
+    results.forEach((accountEmails) => {
+      allEmails = [...allEmails, ...accountEmails];
+    });
+
+    allEmails.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    setEmails(allEmails);
+    setIsFetching(false);
+    toast.success("Inbox updated");
+  }, [accounts]);
+
+  // 3. Handle Email Click
+  const handleEmailClick = (email: EmailMessage) => {
+    setViewEmail(email);
+    setIsViewOpen(true);
+  };
+
+  // 4. Get Account for the currently viewed email
+  // We need to pass the full account object to the viewer so it can decrypt the password
+  const viewedAccount = viewEmail 
+    ? accounts.find(a => a.id === viewEmail.account_id) 
+    : null;
+
+  const filteredEmails = selectedAccountId 
+    ? emails.filter(e => e.account_id === selectedAccountId)
+    : emails;
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="flex h-screen w-full flex-col md:flex-row overflow-hidden">
+      {/* SIDEBAR */}
+      <aside className="w-full md:w-64 bg-zinc-50 border-r p-4 flex flex-col h-full">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="font-bold text-lg tracking-tight">Accounts</h2>
+          <AddAccountModal />
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+
+        <div className="flex-1 overflow-y-auto space-y-2 pr-2">
+          <button
+            onClick={() => setSelectedAccountId(null)}
+            className={`w-full flex items-center space-x-3 px-3 py-2 rounded-md text-sm transition-colors ${
+              selectedAccountId === null
+                ? "bg-primary/10 text-primary font-medium"
+                : "hover:bg-zinc-200/50 text-zinc-700"
+            }`}
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+            <Inbox className="h-4 w-4" />
+            <span>All Inboxes</span>
+          </button>
+
+          <div className="h-px bg-zinc-200 my-2" />
+
+          {accounts.map((account) => (
+            <button
+              key={account.id}
+              onClick={() => setSelectedAccountId(account.id)}
+              className={`w-full flex items-center space-x-3 px-3 py-2 rounded-md text-sm transition-colors ${
+                selectedAccountId === account.id
+                  ? "bg-primary/10 text-primary font-medium"
+                  : "hover:bg-zinc-200/50 text-zinc-700"
+              }`}
+            >
+              <Mail className="h-4 w-4 shrink-0" />
+              <div className="flex-1 text-left truncate">
+                <p className="truncate">{account.label}</p>
+                <p className="text-[10px] text-muted-foreground truncate">{account.email}</p>
+              </div>
+            </button>
+          ))}
+        </div>
+
+        <div className="pt-4 border-t mt-auto">
+           <div className="text-xs text-muted-foreground truncate font-mono bg-zinc-200/50 p-1 rounded mb-2">
+            {user?.email}
+          </div>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            className="w-full justify-start text-red-600"
+            onClick={() => logout()}
           >
-            Documentation
-          </a>
+            <LogOut className="h-4 w-4 mr-2" />
+            Sign Out
+          </Button>
+        </div>
+      </aside>
+
+      {/* MAIN CONTENT */}
+      <main className="flex-1 flex flex-col min-w-0 bg-white h-full">
+        <header className="h-16 border-b flex items-center justify-between px-6 shrink-0">
+          <h1 className="text-xl font-bold">
+            {selectedAccountId 
+              ? accounts.find(a => a.id === selectedAccountId)?.label 
+              : "Unified Inbox"}
+          </h1>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={fetchAllMail} 
+            disabled={isFetching || accounts.length === 0}
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${isFetching ? 'animate-spin' : ''}`} />
+            {isFetching ? 'Syncing...' : 'Refresh'}
+          </Button>
+        </header>
+
+        <div className="flex-1 overflow-y-auto p-0">
+          {accounts.length === 0 ? (
+             <div className="flex flex-col items-center justify-center h-full text-muted-foreground space-y-4">
+               <div className="p-6 bg-zinc-100 rounded-full"><Mail className="h-10 w-10 text-zinc-300" /></div>
+               <p>Add an account to get started</p>
+             </div>
+          ) : filteredEmails.length === 0 && !isFetching ? (
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+              <p>No emails found (or try clicking Refresh)</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-zinc-100">
+              {filteredEmails.map((email) => (
+                <div 
+                  key={email.uid + email.account_id} 
+                  onClick={() => handleEmailClick(email)} // Add Click Handler
+                  className="flex items-start p-4 hover:bg-zinc-50 cursor-pointer group transition-colors"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-sm font-medium text-zinc-900 truncate pr-2">
+                        {email.from.split('<')[0].replace(/"/g, '')}
+                      </p>
+                      <span className="text-xs text-zinc-400 whitespace-nowrap">
+                        {formatDistanceToNow(new Date(email.date), { addSuffix: true })}
+                      </span>
+                    </div>
+                    <h4 className="text-sm text-zinc-700 truncate group-hover:text-zinc-900">
+                      {email.subject || "(No Subject)"}
+                    </h4>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </main>
+
+      {/* THE EMAIL VIEWER SLIDE-OVER */}
+      <EmailView 
+        email={viewEmail} 
+        account={viewedAccount} 
+        isOpen={isViewOpen} 
+        onClose={() => setIsViewOpen(false)} 
+      />
     </div>
   );
 }

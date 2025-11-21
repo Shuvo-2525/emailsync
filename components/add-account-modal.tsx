@@ -67,12 +67,30 @@ export function AddAccountModal() {
 
     setLoading(true);
     try {
-      // 1. Encrypt Password (Server Action)
+      // 1. Validate Connection First
+      const validationRes = await fetch("/api/check-connection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: formData.email,
+          password: formData.password,
+          host: formData.host,
+          port: formData.port
+        }),
+      });
+
+      const validationData = await validationRes.json();
+
+      if (!validationRes.ok || !validationData.success) {
+        throw new Error(validationData.error || "Failed to connect to mail server. Check credentials.");
+      }
+
+      // 2. Encrypt Password (Server Action)
       const payload = new FormData();
       payload.append("password", formData.password);
       const encryptedPassword = await encryptAccountData(payload);
 
-      // 2. Save to Firestore
+      // 3. Save to Firestore
       await addDoc(collection(db, "users", user.uid, "mail_accounts"), {
         label: formData.label,
         email: formData.email,
@@ -85,7 +103,7 @@ export function AddAccountModal() {
         unreadCount: 0,
       });
 
-      toast.success("Account added successfully");
+      toast.success("Account verified and added successfully");
       setOpen(false);
       
       // Reset form
@@ -96,9 +114,10 @@ export function AddAccountModal() {
         host: "imap.titan.email",
         port: "993",
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      toast.error("Failed to add account. Check console.");
+      // Show UI Alert
+      toast.error(error.message || "Failed to verify account details.");
     } finally {
       setLoading(false);
     }
@@ -115,7 +134,7 @@ export function AddAccountModal() {
         <DialogHeader>
           <DialogTitle>Add Email Account</DialogTitle>
           <DialogDescription>
-            Connect an IMAP account to view your emails here.
+            We'll verify your credentials before saving.
           </DialogDescription>
         </DialogHeader>
 
@@ -209,7 +228,7 @@ export function AddAccountModal() {
 
           <Button type="submit" disabled={loading} className="mt-2">
             {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Save Account
+            {loading ? "Verifying..." : "Verify & Save Account"}
           </Button>
         </form>
       </DialogContent>

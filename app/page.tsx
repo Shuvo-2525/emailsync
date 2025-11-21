@@ -4,12 +4,22 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import { db } from "@/lib/firebase";
-import { collection, query, onSnapshot, orderBy } from "firebase/firestore";
+import { collection, query, onSnapshot, orderBy, deleteDoc, doc } from "firebase/firestore";
 import { AddAccountModal } from "@/components/add-account-modal";
 import { EmailView } from "@/components/email-view";
 
 import { Button } from "@/components/ui/button";
-import { RefreshCw, LogOut, Mail, Inbox, MailOpen } from "lucide-react";
+import { RefreshCw, LogOut, Mail, Inbox, MailOpen, Trash2 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"; // Import the new component
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 
@@ -29,7 +39,7 @@ interface EmailMessage {
   subject: string;
   from: string;
   date: string;
-  flags: string[]; // Changed from Set<string> to string[] for JSON compatibility
+  flags: string[];
   account_id: string;
 }
 
@@ -42,6 +52,9 @@ export default function DashboardPage() {
   
   const [emails, setEmails] = useState<EmailMessage[]>([]);
   const [isFetching, setIsFetching] = useState(false);
+
+  // Delete Account State
+  const [accountToDelete, setAccountToDelete] = useState<string | null>(null);
 
   // Viewer State
   const [viewEmail, setViewEmail] = useState<EmailMessage | null>(null);
@@ -112,9 +125,8 @@ export default function DashboardPage() {
 
   // 3. Mark as Read Function
   const handleMarkAsRead = async (e: React.MouseEvent, email: EmailMessage) => {
-    e.stopPropagation(); // Prevent opening the email view
+    e.stopPropagation(); 
 
-    // Optimistic UI Update
     setEmails((prev) => 
       prev.map((msg) => 
         msg.uid === email.uid && msg.account_id === email.account_id 
@@ -139,12 +151,11 @@ export default function DashboardPage() {
     }
   };
 
-  // 4. Handle Email Click (Opens View and marks as read locally)
+  // 4. Handle Email Click
   const handleEmailClick = (email: EmailMessage) => {
     setViewEmail(email);
     setIsViewOpen(true);
     
-    // Mark as read in local state immediately when opening
     if (!email.flags.includes('\\Seen')) {
         setEmails((prev) => 
             prev.map((msg) => 
@@ -153,6 +164,28 @@ export default function DashboardPage() {
                 : msg
             )
         );
+    }
+  };
+
+  // 5. Handle Delete Account
+  const handleDeleteAccount = async () => {
+    if (!accountToDelete || !user) return;
+
+    try {
+      await deleteDoc(doc(db, "users", user.uid, "mail_accounts", accountToDelete));
+      toast.success("Account removed");
+      
+      // Clean up local state
+      if (selectedAccountId === accountToDelete) {
+        setSelectedAccountId(null);
+      }
+      setEmails(prev => prev.filter(e => e.account_id !== accountToDelete));
+      
+    } catch (error) {
+      console.error("Delete error", error);
+      toast.error("Failed to delete account");
+    } finally {
+      setAccountToDelete(null);
     }
   };
 
@@ -190,21 +223,34 @@ export default function DashboardPage() {
           <div className="h-px bg-zinc-200 my-2" />
 
           {accounts.map((account) => (
-            <button
+            <div 
               key={account.id}
-              onClick={() => setSelectedAccountId(account.id)}
-              className={`w-full flex items-center space-x-3 px-3 py-2 rounded-md text-sm transition-colors ${
+              className={`group flex items-center w-full rounded-md transition-colors ${
                 selectedAccountId === account.id
                   ? "bg-primary/10 text-primary font-medium"
                   : "hover:bg-zinc-200/50 text-zinc-700"
               }`}
             >
-              <Mail className="h-4 w-4 shrink-0" />
-              <div className="flex-1 text-left truncate">
-                <p className="truncate">{account.label}</p>
-                <p className="text-[10px] text-muted-foreground truncate">{account.email}</p>
-              </div>
-            </button>
+              <button
+                onClick={() => setSelectedAccountId(account.id)}
+                className="flex-1 flex items-center space-x-3 px-3 py-2 text-sm min-w-0"
+              >
+                <Mail className="h-4 w-4 shrink-0" />
+                <div className="flex-1 text-left truncate">
+                  <p className="truncate">{account.label}</p>
+                  <p className="text-[10px] text-muted-foreground truncate">{account.email}</p>
+                </div>
+              </button>
+              
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-red-600 mr-1"
+                onClick={() => setAccountToDelete(account.id)}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
           ))}
         </div>
 
@@ -264,7 +310,6 @@ export default function DashboardPage() {
                     onClick={() => handleEmailClick(email)}
                     className={`flex items-start p-4 hover:bg-zinc-50 cursor-pointer group transition-colors relative ${!isRead ? 'bg-blue-50/30' : ''}`}
                   >
-                    {/* Unread Indicator Dot */}
                     {!isRead && (
                       <div className="absolute left-2 top-1/2 -translate-y-1/2 w-2 h-2 bg-blue-500 rounded-full" />
                     )}
@@ -278,7 +323,6 @@ export default function DashboardPage() {
                            <span className="text-xs text-zinc-400 whitespace-nowrap">
                             {formatDistanceToNow(new Date(email.date), { addSuffix: true })}
                            </span>
-                           {/* Mark as Read Button */}
                            {!isRead && (
                              <Button 
                                variant="ghost" 
@@ -304,12 +348,31 @@ export default function DashboardPage() {
         </div>
       </main>
 
+      {/* View Email Drawer */}
       <EmailView 
         email={viewEmail} 
         account={viewedAccount} 
         isOpen={isViewOpen} 
         onClose={() => setIsViewOpen(false)} 
       />
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={!!accountToDelete} onOpenChange={(open) => !open && setAccountToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove this account from your dashboard. You can always add it back later.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteAccount} className="bg-red-600 hover:bg-red-700">
+              Delete Account
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
